@@ -11,6 +11,8 @@ Codex Meter is a SwiftUI/AppKit status-bar application with six small layers:
 
 `UsageStore` can select an isolated account profile. Each profile is a Codex-owned `CODEX_HOME` directory with file-scoped credential storage, and the client starts `codex app-server` with that environment only. Adding a profile invokes Codex's supported browser login flow and activates the account only after login succeeds; Codex Meter never inspects the profile's credentials.
 
+Account deletion removes the selected non-default profile only after a native confirmation. The desktop Codex app is a separate authentication surface; public Codex deep links include settings but no supported account-switch endpoint, so the meter opens Codex for the user to complete that switch there rather than injecting cached tokens or requesting Accessibility control.
+
 The client performs the required `initialize` handshake before calling `account/rateLimits/read`. It prefers the `codex` entry in the multi-bucket response and falls back to the backward-compatible single-bucket response. Percentages are clamped to 0–100, and the menu bar displays the lowest remaining percentage across returned windows.
 
 The app intentionally does not consume rate-limit reset credits or expose any write-capable Codex method.

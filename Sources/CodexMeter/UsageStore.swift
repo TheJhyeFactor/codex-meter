@@ -142,6 +142,7 @@ final class UsageStore: ObservableObject {
 
     var windows: [RateLimitWindow] { payload?.snapshot.windows ?? [] }
     var activeAccountName: String { accounts.first(where: { $0.id == activeAccountID })?.name ?? "Default" }
+    var canDeleteActiveAccount: Bool { accounts.first(where: { $0.id == activeAccountID })?.homePath != nil }
     var totalSavingsUSD: Double {
         guard let activity else { return 0 }
         guard let baseline = OpenAIPriceCatalog.price(for: "gpt-5.6-sol") else { return 0 }
@@ -278,6 +279,40 @@ final class UsageStore: ObservableObject {
             startLogin(for: profile)
         } catch {
             errorMessage = "The account profile could not be created: \(error.localizedDescription)"
+        }
+    }
+
+    func deleteActiveAccount() {
+        guard let profile = accounts.first(where: { $0.id == activeAccountID }), let home = profile.homeURL else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Delete \(profile.name)?"
+        alert.informativeText = "This removes the locally saved Codex credentials and usage profile from this Mac. It does not delete the OpenAI account."
+        alert.addButton(withTitle: "Delete Account")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        pollingTask?.cancel()
+        activityPollingTask?.cancel()
+        Task {
+            await client.stop()
+            do {
+                try FileManager.default.removeItem(at: home)
+                accounts.removeAll { $0.id == profile.id }
+                persistAccounts()
+                guard let fallback = accounts.first else { return }
+                activeAccountID = fallback.id
+                client = CodexAppServerClient(codexHome: fallback.homeURL)
+                payload = nil
+                activity = nil
+                celebration = Celebration(title: "Account removed", subtitle: "Local credentials were deleted", symbol: "trash")
+                dismissCelebration()
+                start()
+            } catch {
+                client = CodexAppServerClient(codexHome: profile.homeURL)
+                errorMessage = "The local account could not be deleted: \(error.localizedDescription)"
+                start()
+            }
         }
     }
 

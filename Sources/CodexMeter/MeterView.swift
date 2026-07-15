@@ -176,7 +176,7 @@ struct MeterView: View {
     private var footer: some View {
         VStack(spacing: 10) {
             HStack {
-                Text("Account")
+                Text("Meter account")
                     .font(.system(size: 12))
                 Spacer()
                 Picker("Account", selection: Binding(
@@ -197,6 +197,25 @@ struct MeterView: View {
                 .buttonStyle(.plain)
                 .help("Add Codex account")
                 .accessibilityLabel("Add Codex account")
+                Button {
+                    store.deleteActiveAccount()
+                } label: {
+                    Image(systemName: "minus")
+                }
+                .buttonStyle(.plain)
+                .help("Delete selected local account")
+                .accessibilityLabel("Delete selected local account")
+                .disabled(!store.canDeleteActiveAccount)
+            }
+            HStack(spacing: 8) {
+                Text("The Codex desktop app keeps a separate login.")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Switch in Codex…") { store.openCodex() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Color.accentColor)
             }
             HStack {
                 Text("Menu bar")

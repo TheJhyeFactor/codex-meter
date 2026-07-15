@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0 — 2026-07-15
+
+- Added confirmed deletion of unused local account profiles and their Codex-owned credentials.
+- Clarified the boundary between meter profiles and the separately authenticated Codex desktop app.
+- Added an in-app handoff to open Codex for desktop account switching.
+
 ## 1.3.2 — 2026-07-15
 
 - Changed Add Account to the normal OpenAI browser sign-in flow so email, password, SSO and MFA stay on OpenAI's page.

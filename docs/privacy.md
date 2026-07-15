@@ -19,6 +19,8 @@ Codex Meter has no analytics, telemetry, advertising, account service or history
 
 Adding an account starts the supported `codex login` browser flow with a profile-specific `CODEX_HOME`. Email, password, SSO and MFA are entered only on OpenAI's secure page; the browser returns the completed session directly to Codex. Codex Meter then starts the read-only app-server under that profile. The app does not copy, parse or display `auth.json`, access tokens, passwords or verification codes.
 
+Deleting a non-default profile requires confirmation and removes its entire local `CODEX_HOME`, including the Codex-owned cached credentials. It does not delete or modify the OpenAI account. Meter profiles do not rewrite the separate Codex desktop-app session.
+
 ## Cost estimates
 
 ChatGPT subscriptions are not billed as a simple per-token API invoice. Codex Meter therefore does not claim to show money spent. It applies a bundled, dated snapshot of official standard API prices entirely offline. Custom fallback rates for unknown models remain in local preferences. No local usage is sent to OpenAI's pricing pages.
