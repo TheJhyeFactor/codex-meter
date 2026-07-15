@@ -1,6 +1,6 @@
 import Foundation
 
-enum CodexClientError: LocalizedError, Equatable {
+public enum CodexClientError: LocalizedError, Equatable {
     case executableNotFound
     case launch(String)
     case disconnected
@@ -8,7 +8,7 @@ enum CodexClientError: LocalizedError, Equatable {
     case server(String)
     case invalidResponse
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .executableNotFound: return "Codex is not installed in a supported location."
         case .launch(let message): return "Could not start Codex: \(message)"
@@ -20,14 +20,20 @@ enum CodexClientError: LocalizedError, Equatable {
     }
 }
 
-struct RateLimitWindow: Equatable, Sendable {
-    let usedPercent: Int
-    let resetsAt: Date?
-    let durationMinutes: Int?
+public struct RateLimitWindow: Equatable, Sendable, Codable {
+    public let usedPercent: Int
+    public let resetsAt: Date?
+    public let durationMinutes: Int?
 
-    var remainingPercent: Int { max(0, min(100, 100 - usedPercent)) }
+    public init(usedPercent: Int, resetsAt: Date?, durationMinutes: Int?) {
+        self.usedPercent = usedPercent
+        self.resetsAt = resetsAt
+        self.durationMinutes = durationMinutes
+    }
 
-    var displayName: String {
+    public var remainingPercent: Int { max(0, min(100, 100 - usedPercent)) }
+
+    public var displayName: String {
         guard let durationMinutes else { return "Usage window" }
         if durationMinutes <= 360 { return "5-hour limit" }
         if durationMinutes >= 9_000 { return "Weekly limit" }
@@ -36,24 +42,37 @@ struct RateLimitWindow: Equatable, Sendable {
     }
 }
 
-struct RateLimitSnapshot: Equatable, Sendable {
-    let limitID: String?
-    let limitName: String?
-    let planType: String?
-    let primary: RateLimitWindow?
-    let secondary: RateLimitWindow?
+public struct RateLimitSnapshot: Equatable, Sendable, Codable {
+    public let limitID: String?
+    public let limitName: String?
+    public let planType: String?
+    public let primary: RateLimitWindow?
+    public let secondary: RateLimitWindow?
 
-    var windows: [RateLimitWindow] { [primary, secondary].compactMap { $0 } }
-    var mostConstrainedRemaining: Int? { windows.map(\.remainingPercent).min() }
+    public init(limitID: String?, limitName: String?, planType: String?, primary: RateLimitWindow?, secondary: RateLimitWindow?) {
+        self.limitID = limitID
+        self.limitName = limitName
+        self.planType = planType
+        self.primary = primary
+        self.secondary = secondary
+    }
+
+    public var windows: [RateLimitWindow] { [primary, secondary].compactMap { $0 } }
+    public var mostConstrainedRemaining: Int? { windows.map(\.remainingPercent).min() }
 }
 
-struct RateLimitPayload: Equatable, Sendable {
-    let snapshot: RateLimitSnapshot
-    let fetchedAt: Date
+public struct RateLimitPayload: Equatable, Sendable, Codable {
+    public let snapshot: RateLimitSnapshot
+    public let fetchedAt: Date
+
+    public init(snapshot: RateLimitSnapshot, fetchedAt: Date) {
+        self.snapshot = snapshot
+        self.fetchedAt = fetchedAt
+    }
 }
 
-enum RateLimitParser {
-    static func parseResponse(_ data: Data, now: Date = Date()) throws -> RateLimitPayload? {
+public enum RateLimitParser {
+    public static func parseResponse(_ data: Data, now: Date = Date()) throws -> RateLimitPayload? {
         let object = try JSONSerialization.jsonObject(with: data)
         guard let root = object as? [String: Any] else { return nil }
 
@@ -67,7 +86,7 @@ enum RateLimitParser {
         return RateLimitPayload(snapshot: parseSnapshot(rawSnapshot), fetchedAt: now)
     }
 
-    static func parseNotification(_ data: Data, now: Date = Date()) throws -> RateLimitPayload? {
+    public static func parseNotification(_ data: Data, now: Date = Date()) throws -> RateLimitPayload? {
         let object = try JSONSerialization.jsonObject(with: data)
         guard let root = object as? [String: Any],
               root["method"] as? String == "account/rateLimits/updated",

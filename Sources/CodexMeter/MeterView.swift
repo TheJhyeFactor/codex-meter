@@ -1,3 +1,5 @@
+import Charts
+import CodexMeterCore
 import SwiftUI
 
 struct MeterView: View {
@@ -37,7 +39,10 @@ struct MeterView: View {
             }
             Spacer()
             Button {
-                Task { await store.refresh() }
+                Task {
+                    await store.refresh()
+                    await store.refreshActivity()
+                }
             } label: {
                 if store.isRefreshing {
                     ProgressView().controlSize(.small)
@@ -55,6 +60,32 @@ struct MeterView: View {
 
     @ViewBuilder
     private var content: some View {
+        VStack(spacing: 0) {
+            quotaContent
+            if let activity = store.activity {
+                Divider()
+                LocalActivityView(activity: activity, rates: store.costRates)
+            } else if let activityError = store.activityError {
+                Divider()
+                HStack(alignment: .top, spacing: 9) {
+                    Image(systemName: "exclamationmark.circle")
+                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Local activity unavailable")
+                            .font(.system(size: 11, weight: .medium))
+                        Text(activityError)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(16)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var quotaContent: some View {
         if store.payload == nil && store.isRefreshing {
             VStack(spacing: 10) {
                 ProgressView()
@@ -89,6 +120,18 @@ struct MeterView: View {
     private var footer: some View {
         VStack(spacing: 10) {
             HStack {
+                Text("Menu bar")
+                    .font(.system(size: 12))
+                Spacer()
+                Picker("Menu bar display", selection: $store.displayMode) {
+                    ForEach(MenuBarDisplayMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 150)
+            }
+            HStack {
                 Text("Low-usage alert")
                     .font(.system(size: 12))
                 Spacer()
@@ -100,6 +143,19 @@ struct MeterView: View {
                 .labelsHidden()
                 .frame(width: 72)
             }
+            DisclosureGroup("Custom cost estimate") {
+                VStack(spacing: 7) {
+                    CostRateField(label: "Input", value: $store.inputRate)
+                    CostRateField(label: "Cached input", value: $store.cachedInputRate)
+                    CostRateField(label: "Output", value: $store.outputRate)
+                    Text("Your rates in USD per million tokens. Estimates are API-equivalent, not subscription spend.")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 6)
+            }
+            .font(.system(size: 11))
             Toggle("Launch at login", isOn: Binding(
                 get: { store.launchAtLogin },
                 set: { store.setLaunchAtLogin($0) }
@@ -125,6 +181,95 @@ struct MeterView: View {
             return "Updated \(date.formatted(date: .omitted, time: .shortened))\(store.planLabel.map { " · \($0)" } ?? "")"
         }
         return "Signed in through the Codex app"
+    }
+}
+
+private struct LocalActivityView: View {
+    let activity: LocalActivitySnapshot
+    let rates: LocalCostRates
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Local activity")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("Seven days · read from local session logs")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(compactTokens(activity.total.totalTokens))
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                    Text("tokens")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Chart(activity.days) { day in
+                BarMark(
+                    x: .value("Day", day.date, unit: .day),
+                    y: .value("Tokens", day.usage.totalTokens)
+                )
+                .foregroundStyle(Color.accentColor)
+                .cornerRadius(2)
+            }
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .day)) { value in
+                    AxisValueLabel(format: .dateTime.weekday(.narrow))
+                }
+            }
+            .chartYAxis(.hidden)
+            .frame(height: 62)
+            .accessibilityLabel("Seven-day local token activity")
+            .accessibilityValue(accessibilitySummary)
+
+            HStack {
+                Text("Today \(compactTokens(activity.today.totalTokens))")
+                Spacer()
+                if rates.isConfigured {
+                    Text(String(format: "API-equivalent ≈ $%.2f", rates.estimate(activity.total)))
+                } else {
+                    Text("Cost estimate off")
+                }
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+        }
+        .padding(16)
+    }
+
+    private func compactTokens(_ value: Int64) -> String {
+        if value >= 1_000_000_000 { return String(format: "%.1fB", Double(value) / 1_000_000_000) }
+        if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
+        if value >= 1_000 { return String(format: "%.1fK", Double(value) / 1_000) }
+        return "\(value)"
+    }
+
+    private var accessibilitySummary: String {
+        activity.days.map { day in
+            "\(day.date.formatted(.dateTime.weekday(.wide))): \(day.usage.totalTokens) tokens"
+        }.joined(separator: ", ")
+    }
+}
+
+private struct CostRateField: View {
+    let label: String
+    @Binding var value: Double
+
+    var body: some View {
+        HStack {
+            Text(label)
+            Spacer()
+            TextField("0", value: $value, format: .number.precision(.fractionLength(0...2)))
+                .multilineTextAlignment(.trailing)
+                .frame(width: 58)
+            Text("$/M")
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

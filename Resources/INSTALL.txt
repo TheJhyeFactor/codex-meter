@@ -1,0 +1,12 @@
+CODEX METER
+
+APP
+1. Move "Codex Meter.app" to /Applications.
+2. Control-click it and choose Open the first time if macOS asks.
+
+CLI (OPTIONAL)
+Move "codex-meter" somewhere on your PATH, for example:
+
+  install -m 755 codex-meter /usr/local/bin/codex-meter
+
+Run "codex-meter --help" for status, JSON, threshold alerts, and local history.

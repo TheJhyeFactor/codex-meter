@@ -23,4 +23,7 @@ jobs:
         run: |
           file "dist/Codex Meter.app/Contents/MacOS/CodexMeter"
           lipo "dist/Codex Meter.app/Contents/MacOS/CodexMeter" -verify_arch arm64 x86_64
+          lipo "dist/codex-meter" -verify_arch arm64 x86_64
           codesign --verify --deep --strict "dist/Codex Meter.app"
+          codesign --verify --strict "dist/codex-meter"
+          "dist/codex-meter" --help

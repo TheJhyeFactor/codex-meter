@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CodexMeterCore
 import SwiftUI
 
 @main
@@ -41,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         if previewMode {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 348, height: 500),
+                contentRect: NSRect(x: 0, y: 0, width: 348, height: 680),
                 styleMask: [.titled, .closable, .miniaturizable],
                 backing: .buffered,
                 defer: false
@@ -55,10 +56,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
 
         store.start()
-        store.$payload
-            .combineLatest(store.$errorMessage)
+        Publishers.CombineLatest4(store.$payload, store.$errorMessage, store.$displayMode, store.$activity)
             .receive(on: RunLoop.main)
-            .sink { [weak self] _, _ in self?.updateStatusItem() }
+            .sink { [weak self] _, _, _, _ in self?.updateStatusItem() }
             .store(in: &cancellables)
         updateStatusItem()
     }
@@ -90,9 +90,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func updateStatusItem() {
         guard let button = statusItem.button else { return }
         if let remaining = store.menuBarRemaining {
-            button.title = "\(remaining)%"
+            switch store.displayMode {
+            case .iconAndPercentage:
+                button.image = NSImage(systemSymbolName: "gauge", accessibilityDescription: "Codex usage")
+                button.title = "\(remaining)%"
+            case .percentage:
+                button.image = nil
+                button.title = "\(remaining)%"
+            case .icon:
+                button.image = NSImage(systemSymbolName: "gauge", accessibilityDescription: "Codex usage")
+                button.title = ""
+            case .activity:
+                let days = store.activity?.days ?? []
+                button.image = days.isEmpty
+                    ? NSImage(systemSymbolName: "chart.bar", accessibilityDescription: "Codex activity")
+                    : activityImage(from: days)
+                button.title = ""
+            }
             button.toolTip = "Codex: \(remaining)% remaining in the tightest usage window"
         } else {
+            button.image = NSImage(systemSymbolName: "exclamationmark.circle", accessibilityDescription: "Codex usage unavailable")
             button.title = "—"
             if let error = store.errorMessage {
                 button.toolTip = "Codex usage unavailable: \(error)"
@@ -103,5 +120,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             }
         }
         button.setAccessibilityLabel(button.toolTip ?? "Codex usage")
+    }
+
+    private func activityImage(from days: [DailyTokenUsage]) -> NSImage {
+        let image = NSImage(size: NSSize(width: 22, height: 14))
+        image.lockFocus()
+        defer { image.unlockFocus() }
+        let values = days.suffix(7).map { Double($0.usage.totalTokens) }
+        let maximum = max(values.max() ?? 1, 1)
+        NSColor.labelColor.setFill()
+        for (index, value) in values.enumerated() {
+            let height = max(2, 12 * value / maximum)
+            NSBezierPath(roundedRect: NSRect(x: CGFloat(index) * 3.1, y: 1, width: 2.2, height: CGFloat(height)), xRadius: 0.7, yRadius: 0.7).fill()
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Seven-day Codex activity"
+        return image
     }
 }

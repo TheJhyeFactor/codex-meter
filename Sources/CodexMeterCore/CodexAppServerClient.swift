@@ -1,6 +1,6 @@
 import Foundation
 
-actor CodexAppServerClient {
+public actor CodexAppServerClient {
     private var process: Process?
     private var input: FileHandle?
     private var readTask: Task<Void, Never>?
@@ -27,7 +27,9 @@ actor CodexAppServerClient {
         process?.terminate()
     }
 
-    func readRateLimits() async throws -> RateLimitPayload {
+    public init() {}
+
+    public func readRateLimits() async throws -> RateLimitPayload {
         if process?.isRunning != true { try start() }
         try await ensureInitialized()
 
@@ -49,7 +51,7 @@ actor CodexAppServerClient {
         }
     }
 
-    func stop() {
+    public func stop() {
         readTask?.cancel()
         readTask = nil
         input?.closeFile()

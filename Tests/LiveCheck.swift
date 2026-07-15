@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CodexMeterCore)
+import CodexMeterCore
+#endif
 
 @main
 struct LiveCheck {

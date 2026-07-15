@@ -10,4 +10,6 @@ Include the affected version, reproduction steps, impact, and any suggested miti
 
 Codex Meter starts the local `codex app-server` process and calls only the read-only `account/rateLimits/read` method. It does not read `~/.codex/auth.json`, store credentials, add analytics, or send usage data to a separate service.
 
+Local history scans only aggregate `token_count` records from recent Codex rollout logs. Those source files can contain private content, so the scanner prefilters exact record types, decodes a narrow numeric DTO, never logs source lines, and keeps aggregate results on the Mac.
+
 The distributed app is built by GitHub Actions from the tagged source. Release artifacts should be verified against the source before use in sensitive environments.
