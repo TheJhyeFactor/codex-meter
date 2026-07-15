@@ -27,7 +27,13 @@ struct MeterView: View {
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: store.celebration)
         .frame(width: 348)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(colorScheme == .dark ? 0.12 : 0.42), lineWidth: 0.75)
+        }
     }
 
     private var header: some View {
@@ -60,6 +66,8 @@ struct MeterView: View {
                     ProgressView().controlSize(.small)
                 } else {
                     Image(systemName: "arrow.clockwise")
+                        .rotationEffect(.degrees(store.isRefreshing ? 360 : 0))
+                        .animation(.linear(duration: 0.8).repeatForever(autoreverses: false), value: store.isRefreshing)
                 }
             }
             .buttonStyle(.plain)
@@ -79,6 +87,12 @@ struct MeterView: View {
                 SectionLabel(title: "Usage windows", detail: store.activeAccountName)
             }
             .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.3), lineWidth: 0.6)
+            }
             if let activity = store.activity {
                 Divider()
                 DisclosureGroup(isExpanded: $localActivityExpanded) {
@@ -88,6 +102,11 @@ struct MeterView: View {
                     SectionLabel(title: "Local activity", detail: "\(compactTokens(activity.total.totalTokens)) tokens")
                 }
                 .padding(16)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.3), lineWidth: 0.6)
+                }
             } else if let activityError = store.activityError {
                 Divider()
                 HStack(alignment: .top, spacing: 9) {
@@ -147,6 +166,11 @@ struct MeterView: View {
             SectionLabel(title: "Settings", detail: "Display, alerts and accounts")
         }
         .padding(16)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.3), lineWidth: 0.6)
+        }
     }
 
     private var footer: some View {
@@ -290,8 +314,8 @@ private struct CelebrationBanner: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.accentColor.opacity(0.35)))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.accentColor.opacity(0.35)))
         .padding(.horizontal, 12)
         .shadow(color: .black.opacity(0.15), radius: 8, y: 3)
     }
@@ -403,7 +427,7 @@ private struct LocalActivityView: View {
     }
 
     private func formatted(_ amount: Double) -> String {
-        amount.formatted(.currency(code: currency.code).precision(.fractionLength(2)))
+        "\(currency.symbol)\(amount.formatted(.number.precision(.fractionLength(2))))"
     }
 
     private func compactTokens(_ value: Int64) -> String {
@@ -468,6 +492,7 @@ private struct UsageRow: View {
             ProgressView(value: Double(window.remainingPercent), total: 100)
                 .progressViewStyle(.linear)
                 .tint(meterColor)
+                .animation(.easeInOut(duration: 0.45), value: window.remainingPercent)
                 .accessibilityLabel(window.displayName)
                 .accessibilityValue("\(window.remainingPercent) percent remaining. \(ResetTimeFormatter.relativeText(for: window.resetsAt))")
         }

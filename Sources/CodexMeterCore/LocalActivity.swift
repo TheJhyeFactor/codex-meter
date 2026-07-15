@@ -152,6 +152,14 @@ public enum DisplayCurrency: String, Codable, CaseIterable, Identifiable, Sendab
     public var id: String { rawValue }
     public var code: String { rawValue }
 
+    public var symbol: String {
+        switch self {
+        case .usd: return "US$"
+        case .aud: return "A$"
+        case .eur: return "€"
+        }
+    }
+
     public var bundledUSDExchangeRate: Double {
         switch self {
         case .usd: return 1

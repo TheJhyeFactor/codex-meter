@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.1 — 2026-07-15
+
+- Clarified USD, AUD and EUR symbols in model costs, savings and CLI output.
+- Restored the translucent liquid-glass surface, material section depth and restrained native motion.
+
 ## 1.2.0 — 2026-07-15
 
 - Added local token attribution by the model recorded for each Codex turn.

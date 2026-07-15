@@ -165,7 +165,7 @@ struct CodexMeterCLI {
     }
 
     private static func formattedCurrency(_ amount: Double, currency: DisplayCurrency) -> String {
-        amount.formatted(.currency(code: currency.code).precision(.fractionLength(4)))
+        "\(currency.symbol)\(amount.formatted(.number.precision(.fractionLength(4))))"
     }
 
     private static func parseOptions(_ arguments: [String], booleanFlags: Set<String>, valuedFlags: Set<String>) throws -> ParsedOptions {
