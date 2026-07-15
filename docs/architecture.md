@@ -9,7 +9,7 @@ Codex Meter is a SwiftUI/AppKit status-bar application with six small layers:
 5. `LocalActivityScanner` filters aggregate-only token events from local rollout logs, deduplicates them and produces daily buckets.
 6. `CodexMeterCLI` exposes stable status/history DTOs for local scripts without importing AppKit.
 
-`UsageStore` can select an isolated account profile. Each profile is a Codex-owned `CODEX_HOME` directory, and the client starts `codex app-server` with that environment only. Adding a profile invokes Codex's supported device-auth login flow; Codex Meter never inspects the profile's credentials.
+`UsageStore` can select an isolated account profile. Each profile is a Codex-owned `CODEX_HOME` directory with file-scoped credential storage, and the client starts `codex app-server` with that environment only. Adding a profile invokes Codex's supported browser login flow and activates the account only after login succeeds; Codex Meter never inspects the profile's credentials.
 
 The client performs the required `initialize` handshake before calling `account/rateLimits/read`. It prefers the `codex` entry in the multi-bucket response and falls back to the backward-compatible single-bucket response. Percentages are clamped to 0–100, and the menu bar displays the lowest remaining percentage across returned windows.
 

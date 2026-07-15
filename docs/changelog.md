@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.2 — 2026-07-15
+
+- Changed Add Account to the normal OpenAI browser sign-in flow so email, password, SSO and MFA stay on OpenAI's page.
+- Isolated each saved account with file-scoped Codex credentials and activated it only after successful login.
+
 ## 1.3.1 — 2026-07-15
 
 - Clarified USD, AUD and EUR symbols in model costs, savings and CLI output.

@@ -17,7 +17,7 @@ Rollout logs can contain private prompts, responses, tool calls and file paths. 
 
 Codex Meter has no analytics, telemetry, advertising, account service or history upload. The quota request is handled by the installed Codex process using its existing session. Local history, model pricing and USD/AUD/EUR conversion do not make network calls.
 
-Account switching starts the supported `codex login --device-auth` command with a profile-specific `CODEX_HOME`, then starts the read-only app-server under that same profile. The app does not copy, parse or display `auth.json`, access tokens or passwords.
+Adding an account starts the supported `codex login` browser flow with a profile-specific `CODEX_HOME`. Email, password, SSO and MFA are entered only on OpenAI's secure page; the browser returns the completed session directly to Codex. Codex Meter then starts the read-only app-server under that profile. The app does not copy, parse or display `auth.json`, access tokens, passwords or verification codes.
 
 ## Cost estimates
 

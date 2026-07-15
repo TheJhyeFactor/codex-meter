@@ -67,6 +67,7 @@ final class UsageStore: ObservableObject {
     private let previewMode: Bool
     private var pollingTask: Task<Void, Never>?
     private var activityPollingTask: Task<Void, Never>?
+    private var loginProcesses: [UUID: Process] = [:]
     private static let thresholdKey = "alertThreshold"
     private static let notifiedResetKey = "lastNotifiedReset"
     private static let displayModeKey = "menuBarDisplayMode"
@@ -251,7 +252,7 @@ final class UsageStore: ObservableObject {
     func addAccount() {
         let alert = NSAlert()
         alert.messageText = "Add Codex account"
-        alert.informativeText = "Choose a label. Codex Meter will open Codex's supported device login flow for a private profile on this Mac."
+        alert.informativeText = "Choose a label. Codex Meter will open OpenAI's secure browser sign-in for a private profile on this Mac. Passwords and verification codes stay on OpenAI's page."
         let field = NSTextField(string: "Work")
         field.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
         alert.accessoryView = field
@@ -267,10 +268,13 @@ final class UsageStore: ObservableObject {
             .appendingPathComponent(id.uuidString, isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+            let config = home.appendingPathComponent("config.toml")
+            if !FileManager.default.fileExists(atPath: config.path) {
+                try Data("cli_auth_credentials_store = \"file\"\n".utf8).write(to: config, options: .atomic)
+            }
             let profile = AccountProfile(id: id, name: name, homePath: home.path)
             accounts.append(profile)
             persistAccounts()
-            switchAccount(to: id)
             startLogin(for: profile)
         } catch {
             errorMessage = "The account profile could not be created: \(error.localizedDescription)"
@@ -281,13 +285,36 @@ final class UsageStore: ObservableObject {
         guard let executable = CodexAppServerClient.locateExecutable(), let home = profile.homeURL else { return }
         let process = Process()
         process.executableURL = executable
-        process.arguments = ["login", "--device-auth"]
+        process.arguments = ["login"]
         var environment = ProcessInfo.processInfo.environment
         environment["CODEX_HOME"] = home.path
         process.environment = environment
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { errorMessage = "Codex login could not be started: \(error.localizedDescription)" }
+        process.terminationHandler = { [weak self] finished in
+            Task { @MainActor in
+                self?.finishLogin(profileID: profile.id, succeeded: finished.terminationStatus == 0)
+            }
+        }
+        do {
+            try process.run()
+            loginProcesses[profile.id] = process
+        } catch {
+            errorMessage = "Codex login could not be started: \(error.localizedDescription)"
+        }
+    }
+
+    private func finishLogin(profileID: UUID, succeeded: Bool) {
+        loginProcesses.removeValue(forKey: profileID)
+        guard succeeded else {
+            accounts.removeAll { $0.id == profileID }
+            persistAccounts()
+            errorMessage = "The OpenAI sign-in was cancelled or did not complete. You can add the account again when ready."
+            return
+        }
+        switchAccount(to: profileID)
+        celebration = Celebration(title: "Account ready", subtitle: "Secure sign-in completed", symbol: "person.crop.circle.badge.checkmark")
+        dismissCelebration()
     }
 
     private func persistAccounts() {
