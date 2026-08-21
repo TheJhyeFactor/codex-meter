@@ -6,6 +6,7 @@ import UserNotifications
 
 enum MenuBarDisplayMode: String, CaseIterable, Identifiable {
     case iconAndPercentage
+    case resetAndPercentage
     case percentage
     case icon
     case activity
@@ -14,6 +15,7 @@ enum MenuBarDisplayMode: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .iconAndPercentage: return "Icon + percentage"
+        case .resetAndPercentage: return "Reset + percentage"
         case .percentage: return "Percentage only"
         case .icon: return "Icon only"
         case .activity: return "Activity chart"
@@ -162,6 +164,10 @@ final class UsageStore: ObservableObject {
     var menuBarRemaining: Int? {
         guard errorMessage == nil, !isStale else { return nil }
         return payload?.snapshot.mostConstrainedRemaining
+    }
+    var menuBarWindow: RateLimitWindow? {
+        guard errorMessage == nil, !isStale else { return nil }
+        return payload?.snapshot.mostConstrainedWindow
     }
     var planLabel: String? {
         payload?.snapshot.planType?.replacingOccurrences(of: "_", with: " ").capitalized

@@ -11,6 +11,7 @@ struct ParserCheck {
         precondition(payload.snapshot.primary?.remainingPercent == 63)
         precondition(payload.snapshot.secondary?.remainingPercent == 19)
         precondition(payload.snapshot.mostConstrainedRemaining == 19)
+        precondition(payload.snapshot.mostConstrainedWindow == payload.snapshot.secondary)
         precondition(payload.snapshot.primary?.displayName == "5-hour limit")
         precondition(payload.snapshot.secondary?.displayName == "Weekly limit")
         precondition(payload.availableResetCredits == nil)
@@ -31,6 +32,33 @@ struct ParserCheck {
         let update = #"{"method":"account/rateLimits/updated","params":{"rateLimits":{"primary":{"usedPercent":9,"windowDurationMins":300}}}}"#
         let updated = try require(RateLimitParser.parseNotification(Data(update.utf8)))
         precondition(updated.snapshot.primary?.remainingPercent == 91)
+
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let multiDay = ResetCountdownFormatter.format(until: now.addingTimeInterval((2 * 86_400) + (8 * 3_600)), now: now)
+        precondition(multiDay.daysText == "2d")
+        precondition(multiDay.hoursText == "8h")
+        precondition(multiDay.accessibilityText == "2 days, 8 hours until reset")
+
+        let sameDay = ResetCountdownFormatter.format(until: now.addingTimeInterval(8 * 3_600), now: now)
+        precondition(sameDay.daysText == "0d")
+        precondition(sameDay.hoursText == "8h")
+
+        let underOneHour = ResetCountdownFormatter.format(until: now.addingTimeInterval(59 * 60), now: now)
+        precondition(underOneHour.daysText == "0d")
+        precondition(underOneHour.hoursText == "<1h")
+
+        let expired = ResetCountdownFormatter.format(until: now.addingTimeInterval(-1), now: now)
+        precondition(expired.daysText == "0d")
+        precondition(expired.hoursText == "0h")
+
+        let unavailable = ResetCountdownFormatter.format(until: nil, now: now)
+        precondition(unavailable.daysText == "--")
+        precondition(unavailable.hoursText == "--")
+
+        let tiedPrimary = RateLimitWindow(usedPercent: 50, resetsAt: now.addingTimeInterval(3_600), durationMinutes: 300)
+        let tiedSecondary = RateLimitWindow(usedPercent: 50, resetsAt: now.addingTimeInterval(86_400), durationMinutes: 10_080)
+        let tied = RateLimitSnapshot(limitID: "codex", limitName: "Codex", planType: "plus", primary: tiedPrimary, secondary: tiedSecondary)
+        precondition(tied.mostConstrainedWindow == tiedPrimary)
         print("Parser checks passed")
     }
 

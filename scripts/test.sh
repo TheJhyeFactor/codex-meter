@@ -12,6 +12,12 @@ swiftc \
 "$TMP/parser-check"
 
 swiftc \
+  "$ROOT/Sources/CodexMeterCore/RateLimitModels.swift" \
+  "$ROOT/Tests/WeeklyPaceCheck.swift" \
+  -o "$TMP/weekly-pace-check"
+"$TMP/weekly-pace-check"
+
+swiftc \
   "$ROOT/Sources/CodexMeterCore/LocalActivity.swift" \
   "$ROOT/Tests/ActivityCheck.swift" \
   -o "$TMP/activity-check"

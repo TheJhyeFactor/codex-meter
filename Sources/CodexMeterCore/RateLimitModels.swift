@@ -42,6 +42,110 @@ public struct RateLimitWindow: Equatable, Sendable, Codable {
     }
 }
 
+public struct ResetCountdown: Equatable, Sendable {
+    public let daysText: String
+    public let hoursText: String
+    public let accessibilityText: String
+
+    public init(daysText: String, hoursText: String, accessibilityText: String) {
+        self.daysText = daysText
+        self.hoursText = hoursText
+        self.accessibilityText = accessibilityText
+    }
+}
+
+public enum ResetCountdownFormatter {
+    public static func format(until resetDate: Date?, now: Date = Date()) -> ResetCountdown {
+        guard let resetDate else {
+            return ResetCountdown(daysText: "--", hoursText: "--", accessibilityText: "Reset time unavailable")
+        }
+
+        let secondsRemaining = max(0, Int(resetDate.timeIntervalSince(now)))
+        if secondsRemaining == 0 {
+            return ResetCountdown(daysText: "0d", hoursText: "0h", accessibilityText: "Resetting now")
+        }
+        if secondsRemaining < 3_600 {
+            return ResetCountdown(daysText: "0d", hoursText: "<1h", accessibilityText: "Less than 1 hour until reset")
+        }
+
+        let days = secondsRemaining / 86_400
+        let hours = (secondsRemaining % 86_400) / 3_600
+        let dayUnit = days == 1 ? "day" : "days"
+        let hourUnit = hours == 1 ? "hour" : "hours"
+        return ResetCountdown(
+            daysText: "\(days)d",
+            hoursText: "\(hours)h",
+            accessibilityText: "\(days) \(dayUnit), \(hours) \(hourUnit) until reset"
+        )
+    }
+}
+
+public enum WeeklyPaceSeverity: String, Equatable, Sendable, Codable {
+    case belowPace
+    case onPace
+    case elevated
+    case high
+    case veryHigh
+}
+
+public struct WeeklyPace: Equatable, Sendable, Codable {
+    public static let visualLimit = 50.0
+
+    public let actualUsedPercent: Double
+    public let expectedUsedPercent: Double
+    public let deltaPoints: Double
+    public let markerPosition: Double
+    public let equivalentTime: TimeInterval
+    public let severity: WeeklyPaceSeverity
+
+    public init?(window: RateLimitWindow, now: Date = Date()) {
+        guard let durationMinutes = window.durationMinutes,
+              durationMinutes >= 9_000,
+              let resetsAt = window.resetsAt else { return nil }
+
+        let duration = TimeInterval(durationMinutes * 60)
+        guard duration > 0 else { return nil }
+        let start = resetsAt.addingTimeInterval(-duration)
+        let elapsed = min(max(now.timeIntervalSince(start), 0), duration)
+        let expected = elapsed / duration * 100
+        let actual = Double(window.usedPercent)
+        let delta = actual - expected
+
+        actualUsedPercent = actual
+        expectedUsedPercent = expected
+        deltaPoints = delta
+        markerPosition = min(max(delta / Self.visualLimit, -1), 1)
+        equivalentTime = abs(delta) / 100 * duration
+        if delta <= -0.5 {
+            severity = .belowPace
+        } else if delta < 0.5 {
+            severity = .onPace
+        } else if delta < 15 {
+            severity = .elevated
+        } else if delta < 30 {
+            severity = .high
+        } else {
+            severity = .veryHigh
+        }
+    }
+
+    public var summaryText: String {
+        guard abs(deltaPoints) >= 0.5 else { return "On pace" }
+        let totalHours = max(1, Int(equivalentTime / 3_600))
+        let days = totalHours / 24
+        let hours = totalHours % 24
+        let timeText: String
+        if days > 0, hours > 0 {
+            timeText = "\(days)d \(hours)h"
+        } else if days > 0 {
+            timeText = "\(days)d"
+        } else {
+            timeText = "\(hours)h"
+        }
+        return deltaPoints > 0 ? "usage is \(timeText) ahead" : "usage is \(timeText) under pace"
+    }
+}
+
 public struct RateLimitSnapshot: Equatable, Sendable, Codable {
     public let limitID: String?
     public let limitName: String?
@@ -58,7 +162,10 @@ public struct RateLimitSnapshot: Equatable, Sendable, Codable {
     }
 
     public var windows: [RateLimitWindow] { [primary, secondary].compactMap { $0 } }
-    public var mostConstrainedRemaining: Int? { windows.map(\.remainingPercent).min() }
+    public var mostConstrainedWindow: RateLimitWindow? {
+        windows.min { $0.remainingPercent < $1.remainingPercent }
+    }
+    public var mostConstrainedRemaining: Int? { mostConstrainedWindow?.remainingPercent }
 }
 
 public struct RateLimitPayload: Equatable, Sendable, Codable {
