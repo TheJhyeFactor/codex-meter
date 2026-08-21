@@ -54,6 +54,7 @@ Alert thresholds, menu-bar modes, history charts, cost rates and CLI automation 
 - Refreshes automatically every two minutes, with manual refresh when you want it.
 - Warns you when remaining usage drops below 10%, 20%, or 30%.
 - Detects stale or unavailable data instead of leaving a misleading old number visible.
+- Uses the existing default Codex sign-in without requiring a separate Meter profile, and offers sanitized copyable diagnostics when refresh fails.
 - Builds a seven-day token activity chart from aggregate events in local Codex session logs.
 - Breaks local usage down by the actual model recorded for each Codex turn.
 - Automatically calculates an API-equivalent estimate with bundled official OpenAI standard prices.
@@ -85,7 +86,7 @@ The current community build is ad-hoc signed, not Apple-notarized. If macOS bloc
 - ChatGPT/Codex installed and signed in
 - A Codex plan that returns rate-limit information
 
-Codex Meter checks the ChatGPT app bundle and common Homebrew, npm, Volta, and local CLI locations. Developers launching from Terminal can also set `CODEX_PATH` to an absolute Codex executable path.
+Codex Meter checks the current Codex and ChatGPT app bundles plus common Homebrew, npm, Volta, and local CLI locations. Developers launching from Terminal can also set `CODEX_PATH` to an absolute Codex executable path.
 
 Codex Meter keeps each saved profile in an isolated `CODEX_HOME`. When you choose **Meter + Codex**, it uses OpenAI's documented `account/logout` and ChatGPT browser-login flow against the default Codex profile, verifies that login, then relaunches the desktop app. OpenAI does not publish a direct account-switch deep link, so a browser confirmation is required; Codex Meter never asks for or handles your password or MFA code.
 

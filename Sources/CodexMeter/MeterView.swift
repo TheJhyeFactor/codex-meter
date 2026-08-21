@@ -189,9 +189,9 @@ struct MeterView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 148)
         } else if store.windows.isEmpty {
-            EmptyState(message: store.errorMessage ?? "Usage data is unavailable.") {
+            EmptyState(message: store.errorMessage ?? "Usage data is unavailable.", retry: {
                 Task { await store.refresh() }
-            }
+            }, copyDiagnostics: store.copyUsageDiagnostics)
         } else {
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
@@ -215,12 +215,18 @@ struct MeterView: View {
                     if index < store.windows.count - 1 { Divider().padding(.leading, 16) }
                 }
                 if let error = store.errorMessage {
-                    Text(error)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.orange)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 12)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(error)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button("Copy Diagnostics", action: store.copyUsageDiagnostics)
+                            .font(.system(size: 9, weight: .medium))
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
                 }
             }
         }
@@ -596,6 +602,7 @@ private struct UsageRow: View {
 private struct EmptyState: View {
     let message: String
     let retry: () -> Void
+    let copyDiagnostics: () -> Void
 
     var body: some View {
         VStack(spacing: 10) {
@@ -609,8 +616,11 @@ private struct EmptyState: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 260)
-            Button("Try again", action: retry)
-                .controlSize(.small)
+            HStack(spacing: 10) {
+                Button("Try again", action: retry)
+                Button("Copy Diagnostics", action: copyDiagnostics)
+            }
+            .controlSize(.small)
         }
         .frame(maxWidth: .infinity, minHeight: 166)
         .padding(.horizontal, 20)

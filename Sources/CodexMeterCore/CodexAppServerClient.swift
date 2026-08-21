@@ -2,6 +2,7 @@ import Foundation
 
 public actor CodexAppServerClient {
     private let codexHome: URL?
+    private let explicitExecutableURL: URL?
     private var process: Process?
     private var input: FileHandle?
     private var readTask: Task<Void, Never>?
@@ -14,11 +15,20 @@ public actor CodexAppServerClient {
     private var pendingLoginCompletions: [String: CheckedContinuation<Void, Error>] = [:]
     private var completedLogins: [String: Result<Void, Error>] = [:]
     private var latestSnapshot: RateLimitPayload?
+    private var executablePath: String?
+    private var protocolStage = "not started"
 
     private var executableCandidates: [String] {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return [
-            ProcessInfo.processInfo.environment["CODEX_PATH"],
+        Self.executableCandidatePaths()
+    }
+
+    public static func executableCandidatePaths(
+        home: String = FileManager.default.homeDirectoryForCurrentUser.path,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String] {
+        [
+            environment["CODEX_PATH"],
+            "/Applications/Codex.app/Contents/Resources/codex",
             "/Applications/ChatGPT.app/Contents/Resources/codex",
             "/opt/homebrew/bin/codex",
             "/usr/local/bin/codex",
@@ -29,16 +39,7 @@ public actor CodexAppServerClient {
     }
 
     public static func locateExecutable() -> URL? {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let candidates = [
-            ProcessInfo.processInfo.environment["CODEX_PATH"],
-            "/Applications/ChatGPT.app/Contents/Resources/codex",
-            "/opt/homebrew/bin/codex",
-            "/usr/local/bin/codex",
-            "\(home)/.local/bin/codex",
-            "\(home)/.npm-global/bin/codex",
-            "\(home)/.volta/bin/codex"
-        ].compactMap { $0 }
+        let candidates = executableCandidatePaths()
         return candidates.first(where: FileManager.default.isExecutableFile(atPath:)).map(URL.init(fileURLWithPath:))
     }
 
@@ -47,14 +48,16 @@ public actor CodexAppServerClient {
         process?.terminate()
     }
 
-    public init(codexHome: URL? = nil) {
+    public init(codexHome: URL? = nil, executableURL: URL? = nil) {
         self.codexHome = codexHome
+        self.explicitExecutableURL = executableURL
     }
 
     public func readRateLimits() async throws -> RateLimitPayload {
         if process?.isRunning != true { try start() }
         try await ensureInitialized()
 
+        protocolStage = "waiting for account/rateLimits/read"
         let id = nextID
         nextID += 1
         return try await withCheckedThrowingContinuation { continuation in
@@ -166,6 +169,15 @@ public actor CodexAppServerClient {
         failPending(with: CodexClientError.disconnected)
     }
 
+    public func diagnosticSummary() -> String {
+        [
+            "Executable: \(executablePath ?? explicitExecutableURL?.path ?? "not resolved")",
+            "CODEX_HOME: \(codexHome == nil ? "default" : "isolated profile")",
+            "Protocol stage: \(protocolStage)",
+            "Process running: \(process?.isRunning == true ? "yes" : "no")"
+        ].joined(separator: "\n")
+    }
+
     private func timeoutRead(id: Int) {
         pendingReads.removeValue(forKey: id)?.resume(throwing: CodexClientError.timedOut)
     }
@@ -187,9 +199,14 @@ public actor CodexAppServerClient {
     }
 
     private func start() throws {
-        guard let executable = executableCandidates.first(where: FileManager.default.isExecutableFile(atPath:)) else {
+        let executable = explicitExecutableURL?.path
+            ?? executableCandidates.first(where: FileManager.default.isExecutableFile(atPath:))
+        guard let executable else {
             throw CodexClientError.executableNotFound
         }
+
+        executablePath = executable
+        protocolStage = "starting app-server"
 
         let process = Process()
         let stdout = Pipe()
@@ -199,11 +216,15 @@ public actor CodexAppServerClient {
         process.standardOutput = stdout
         process.standardInput = stdin
         process.standardError = FileHandle.nullDevice
+        var environment = ProcessInfo.processInfo.environment
+        let inheritedPath = environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        let executableDirectory = URL(fileURLWithPath: executable).deletingLastPathComponent().path
+        let requiredPaths = [executableDirectory, "/opt/homebrew/bin", "/usr/local/bin"]
+        environment["PATH"] = (requiredPaths + [inheritedPath]).joined(separator: ":")
         if let codexHome {
-            var environment = ProcessInfo.processInfo.environment
             environment["CODEX_HOME"] = codexHome.path
-            process.environment = environment
         }
+        process.environment = environment
 
         do { try process.run() } catch { throw CodexClientError.launch(error.localizedDescription) }
 
@@ -227,6 +248,7 @@ public actor CodexAppServerClient {
             let id = nextID
             nextID += 1
             initializationID = id
+            protocolStage = "waiting for initialize response"
             try send([
                 "method": "initialize",
                 "id": id,
@@ -256,6 +278,7 @@ public actor CodexAppServerClient {
 
         if let id = (root["id"] as? NSNumber)?.intValue, id == initializationID {
             initializationID = nil
+            protocolStage = "initialized"
             try? send(["method": "initialized", "params": [:]])
             return
         }
@@ -264,6 +287,7 @@ public actor CodexAppServerClient {
             do {
                 guard let payload = try RateLimitParser.parseResponse(data) else { throw CodexClientError.invalidResponse }
                 latestSnapshot = payload
+                protocolStage = "rate limits received"
                 continuation.resume(returning: payload)
             } catch {
                 continuation.resume(throwing: error)
@@ -327,6 +351,7 @@ public actor CodexAppServerClient {
         process = nil
         input = nil
         initializationID = nil
+        protocolStage = "app-server disconnected"
         failPending(with: CodexClientError.disconnected)
     }
 
