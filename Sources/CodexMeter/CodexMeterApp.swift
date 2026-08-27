@@ -93,26 +93,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func updateStatusItem() {
         guard let button = statusItem.button else { return }
-        if let remaining = store.menuBarRemaining {
+        if let window = store.menuBarWindow {
+            let remaining = window.remainingPercent
             switch store.displayMode {
             case .iconAndPercentage:
                 button.image = NSImage(systemSymbolName: "gauge", accessibilityDescription: "Codex usage")
-                button.title = store.totalSavings > 0 ? "\(remaining)% · \(store.currency.code)\(Int(store.totalSavings))" : "\(remaining)%"
+                button.imagePosition = .imageLeading
+                button.title = "\(remaining)%"
+            case .resetAndPercentage:
+                let countdown = ResetCountdownFormatter.format(until: window.resetsAt)
+                button.image = weeklyBadgeImage(countdown: countdown, remaining: remaining, pace: WeeklyPace(window: window))
+                button.imagePosition = .imageOnly
+                button.title = ""
             case .percentage:
                 button.image = nil
                 button.title = "\(remaining)%"
             case .icon:
                 button.image = NSImage(systemSymbolName: "gauge", accessibilityDescription: "Codex usage")
+                button.imagePosition = .imageOnly
                 button.title = ""
             case .activity:
                 let days = store.activity?.days ?? []
                 button.image = days.isEmpty
                     ? NSImage(systemSymbolName: "chart.bar", accessibilityDescription: "Codex activity")
                     : activityImage(from: days)
+                button.imagePosition = .imageOnly
                 button.title = ""
             }
-            let savingsText = store.totalSavings > 0 ? " Estimated savings: \(store.currency.code) \(Int(store.totalSavings))." : ""
-            button.toolTip = "Codex: \(remaining)% remaining in the tightest usage window.\(savingsText)"
+            let countdown = ResetCountdownFormatter.format(until: window.resetsAt)
+            let exactReset = window.resetsAt.map {
+                " Resets \($0.formatted(date: .abbreviated, time: .shortened))."
+            } ?? ""
+            let paceText = WeeklyPace(window: window).map { " Weekly pace: \($0.summaryText)." } ?? ""
+            button.toolTip = "\(window.displayName): \(remaining)% remaining. \(countdown.accessibilityText).\(exactReset)\(paceText)"
         } else {
             button.image = NSImage(systemSymbolName: "exclamationmark.circle", accessibilityDescription: "Codex usage unavailable")
             button.title = "—"
@@ -125,6 +138,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             }
         }
         button.setAccessibilityLabel(button.toolTip ?? "Codex usage")
+    }
+
+    private func weeklyBadgeImage(countdown: ResetCountdown, remaining: Int, pace: WeeklyPace?) -> NSImage {
+        let size = NSSize(width: 58, height: 18)
+        let image = NSImage(size: size, flipped: false) { _ in
+            NSColor.black.setFill()
+
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            let numberAttributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 8.5, weight: .bold),
+                .foregroundColor: NSColor.white,
+                .paragraphStyle: paragraph
+            ]
+            let suffixAttributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 6.5, weight: .semibold),
+                .foregroundColor: NSColor.white,
+                .paragraphStyle: paragraph,
+                .baselineOffset: 0.4
+            ]
+
+            self.countdownLine(countdown.daysText, numberAttributes: numberAttributes, suffixAttributes: suffixAttributes)
+                .draw(in: NSRect(x: 3, y: 8.5, width: 17, height: 9.5))
+            self.countdownLine(countdown.hoursText, numberAttributes: numberAttributes, suffixAttributes: suffixAttributes)
+                .draw(in: NSRect(x: 3, y: -0.5, width: 17, height: 9.5))
+
+            let percentParagraph = NSMutableParagraphStyle()
+            percentParagraph.alignment = .center
+            let percentAttributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 9.75, weight: .bold),
+                .foregroundColor: NSColor.white,
+                .paragraphStyle: percentParagraph
+            ]
+            NSAttributedString(string: "\(remaining)%", attributes: percentAttributes)
+                .draw(in: NSRect(x: 21, y: 7.75, width: 34, height: 10.25))
+
+            let rail = NSRect(x: 25, y: 2.5, width: 27, height: 3)
+            NSBezierPath(roundedRect: rail, xRadius: 1.5, yRadius: 1.5).fill()
+            let centerLineWidth: CGFloat = 0.5
+            NSGraphicsContext.current?.compositingOperation = .destinationOut
+            NSBezierPath(rect: NSRect(x: rail.midX - centerLineWidth / 2, y: rail.minY, width: centerLineWidth, height: rail.height)).fill()
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
+            NSColor.black.withAlphaComponent(0.75).setFill()
+            NSBezierPath(rect: NSRect(x: rail.midX - centerLineWidth / 2, y: rail.maxY, width: centerLineWidth, height: 1.25)).fill()
+            NSBezierPath(rect: NSRect(x: rail.midX - centerLineWidth / 2, y: rail.minY - 1.25, width: centerLineWidth, height: 1.25)).fill()
+            NSColor.black.setFill()
+            if let pace {
+                let markerX = rail.midX + CGFloat(pace.markerPosition) * (rail.width / 2 - 2)
+                NSBezierPath(ovalIn: NSRect(x: markerX - 3, y: rail.midY - 3, width: 6, height: 6)).fill()
+                NSGraphicsContext.current?.compositingOperation = .destinationOut
+                NSBezierPath(ovalIn: NSRect(x: markerX - 1.5, y: rail.midY - 1.5, width: 3, height: 3)).fill()
+                NSGraphicsContext.current?.compositingOperation = .sourceOver
+            }
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "\(remaining) percent remaining, \(countdown.accessibilityText)\(pace.map { ", weekly pace \($0.summaryText)" } ?? "")"
+        return image
+    }
+
+    private func countdownLine(
+        _ text: String,
+        numberAttributes: [NSAttributedString.Key: Any],
+        suffixAttributes: [NSAttributedString.Key: Any]
+    ) -> NSAttributedString {
+        guard let suffix = text.last, suffix == "d" || suffix == "h" else {
+            return NSAttributedString(string: text, attributes: numberAttributes)
+        }
+        let line = NSMutableAttributedString(string: String(text.dropLast()), attributes: numberAttributes)
+        line.append(NSAttributedString(string: "\u{2009}\(suffix)", attributes: suffixAttributes))
+        return line
     }
 
     private func activityImage(from days: [DailyTokenUsage]) -> NSImage {

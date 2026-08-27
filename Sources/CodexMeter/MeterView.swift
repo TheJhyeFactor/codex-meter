@@ -211,7 +211,7 @@ struct MeterView: View {
                     : "Reset credits currently available for this account")
                 Divider().padding(.leading, 16)
                 ForEach(Array(store.windows.enumerated()), id: \.offset) { index, window in
-                    UsageRow(window: window)
+                    UsageRow(window: window, now: store.payload?.fetchedAt ?? Date())
                     if index < store.windows.count - 1 { Divider().padding(.leading, 16) }
                 }
                 if let error = store.errorMessage {
@@ -550,9 +550,10 @@ private struct CostRateField: View {
 
 private struct UsageRow: View {
     let window: RateLimitWindow
+    let now: Date
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
@@ -567,21 +568,38 @@ private struct UsageRow: View {
                     Text(ResetTimeFormatter.relativeText(for: window.resetsAt))
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
-                        .help(ResetTimeFormatter.absoluteText(for: window.resetsAt) ?? "")
                 }
                 Spacer()
-                Text("\(window.remainingPercent)%")
-                    .font(.system(size: 22, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .accessibilityLabel("\(window.remainingPercent) percent remaining")
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text("\(window.remainingPercent)%")
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                    Text("remaining")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    if let absoluteReset = ResetTimeFormatter.absoluteText(for: window.resetsAt) {
+                        Text(absoluteReset)
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(window.remainingPercent) percent remaining")
             }
 
-            ProgressView(value: Double(window.remainingPercent), total: 100)
-                .progressViewStyle(.linear)
-                .tint(meterColor)
+            UsageProgressBar(remainingPercent: window.remainingPercent, color: meterColor)
                 .animation(.easeInOut(duration: 0.45), value: window.remainingPercent)
                 .accessibilityLabel(window.displayName)
-                .accessibilityValue("\(window.remainingPercent) percent remaining. \(ResetTimeFormatter.relativeText(for: window.resetsAt))")
+                .accessibilityValue([
+                    "\(window.remainingPercent) percent remaining.",
+                    ResetTimeFormatter.relativeText(for: window.resetsAt),
+                    ResetTimeFormatter.absoluteText(for: window.resetsAt)
+                ].compactMap { $0 }.joined(separator: " "))
+
+            if let pace = WeeklyPace(window: window, now: now) {
+                Divider()
+                WeeklyPaceView(pace: pace)
+            }
         }
         .padding(16)
     }
@@ -596,6 +614,118 @@ private struct UsageRow: View {
         if window.remainingPercent <= 10 { return "Nearly exhausted" }
         if window.remainingPercent <= 25 { return "Running low" }
         return nil
+    }
+}
+
+private struct UsageProgressBar: View {
+    let remainingPercent: Int
+    let color: Color
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.secondary.opacity(0.18)).frame(height: 8)
+                Capsule()
+                    .fill(color)
+                    .frame(width: width * CGFloat(remainingPercent) / 100, height: 8)
+                ForEach(0...8, id: \.self) { index in
+                    Rectangle()
+                        .fill(Color.primary.opacity(index.isMultiple(of: 2) ? 0.24 : 0.12))
+                        .frame(width: 1, height: index.isMultiple(of: 2) ? 14 : 10)
+                        .position(x: min(max(width * CGFloat(index) / 8, 0.5), width - 0.5), y: 7)
+                }
+            }
+            .frame(height: 14)
+        }
+        .frame(height: 14)
+    }
+}
+
+private struct WeeklyPaceView: View {
+    let pace: WeeklyPace
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Weekly pace")
+                    .font(.system(size: 11, weight: .semibold))
+                Spacer()
+                Text(pace.summaryText)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(PacePalette.color(for: pace.deltaPoints))
+            }
+            Text("\(rounded(pace.actualUsedPercent))% used · \(rounded(pace.expectedUsedPercent))% expected by now")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            PaceBar(pace: pace)
+            HStack {
+                Text("−50%")
+                Spacer()
+                Text("On pace")
+                Spacer()
+                Text("+50%")
+            }
+            .font(.system(size: 8))
+            .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Weekly pace")
+        .accessibilityValue("\(pace.summaryText). \(rounded(pace.actualUsedPercent)) percent used; \(rounded(pace.expectedUsedPercent)) percent expected by now.")
+    }
+
+    private func rounded(_ value: Double) -> Int { Int(value.rounded()) }
+}
+
+private struct PaceBar: View {
+    let pace: WeeklyPace
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            let center = width / 2
+            let marker = width * CGFloat((pace.markerPosition + 1) / 2)
+            let color = PacePalette.color(for: pace.deltaPoints)
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.secondary.opacity(0.22)).frame(height: 8)
+                Capsule()
+                    .fill(color)
+                    .frame(width: abs(marker - center), height: 8)
+                    .position(x: (marker + center) / 2, y: 9)
+                Rectangle()
+                    .fill(Color.primary.opacity(0.35))
+                    .frame(width: 1, height: 13)
+                    .position(x: center, y: 5.5)
+                Circle()
+                    .fill(Color(nsColor: .windowBackgroundColor))
+                    .overlay(Circle().stroke(color, lineWidth: 3))
+                    .frame(width: 13, height: 13)
+                    .position(x: marker, y: 9)
+            }
+            .frame(height: 18)
+        }
+        .frame(height: 18)
+    }
+}
+
+private enum PacePalette {
+    static func color(for delta: Double) -> Color {
+        guard delta > 0 else { return Color(nsColor: .systemGreen) }
+        let stops: [(Double, NSColor)] = [
+            (0, .systemGreen),
+            (12.5, .systemYellow),
+            (25, .systemOrange),
+            (37.5, .systemRed),
+            (50, NSColor(calibratedRed: 0.55, green: 0.02, blue: 0.04, alpha: 1))
+        ]
+        let clamped = min(delta, 50)
+        for index in 1..<stops.count where clamped <= stops[index].0 {
+            let lower = stops[index - 1]
+            let upper = stops[index]
+            let fraction = (clamped - lower.0) / (upper.0 - lower.0)
+            return Color(nsColor: lower.1.blended(withFraction: fraction, of: upper.1) ?? upper.1)
+        }
+        return Color(nsColor: stops.last!.1)
     }
 }
 
