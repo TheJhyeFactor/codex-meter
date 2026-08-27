@@ -23,6 +23,14 @@ swiftc \
   -o "$TMP/account-profile-storage-check"
 "$TMP/account-profile-storage-check"
 
+swiftc \
+  -parse-as-library \
+  "$ROOT/Sources/CodexMeterCore/RateLimitModels.swift" \
+  "$ROOT/Sources/CodexMeterCore/CodexAppServerClient.swift" \
+  "$ROOT/Tests/AppServerHandshakeCheck.swift" \
+  -o "$TMP/app-server-handshake-check"
+"$TMP/app-server-handshake-check"
+
 if [[ "${SKIP_LIVE_CODEX_CHECK:-0}" != "1" ]]; then
   swiftc \
     "$ROOT/Sources/CodexMeterCore/RateLimitModels.swift" \

@@ -40,6 +40,7 @@ struct Celebration: Equatable, Identifiable {
 
 @MainActor
 final class UsageStore: ObservableObject {
+    private static let defaultAccountID = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
     @Published private(set) var payload: RateLimitPayload?
     @Published private(set) var isRefreshing = false
     @Published private(set) var errorMessage: String?
@@ -71,7 +72,8 @@ final class UsageStore: ObservableObject {
     private let previewMode: Bool
     private var pollingTask: Task<Void, Never>?
     private var activityPollingTask: Task<Void, Never>?
-    private var loginProcesses: [UUID: Process] = [:]
+    private var loginTasks: [UUID: Task<Void, Never>] = [:]
+    private var lastUsageDiagnostics: String?
     private static let thresholdKey = "alertThreshold"
     private static let notifiedResetKey = "lastNotifiedReset"
     private static let displayModeKey = "menuBarDisplayMode"
@@ -86,25 +88,30 @@ final class UsageStore: ObservableObject {
     private static let resetMilestoneKey = "lastBankedReset"
 
     init(previewMode: Bool = false) {
-        let defaultAccount = AccountProfile(id: UUID(), name: "Default", homePath: nil, email: nil)
+        let defaultAccount = AccountProfile(id: Self.defaultAccountID, name: "Default", homePath: nil, email: nil)
         let loadedAccounts: [AccountProfile]
         if let data = UserDefaults.standard.data(forKey: Self.accountsKey),
            let decoded = try? JSONDecoder().decode([AccountProfile].self, from: data), !decoded.isEmpty {
-            loadedAccounts = decoded
+            let separateAccounts = decoded.filter { $0.homePath != nil }
+            loadedAccounts = [defaultAccount] + separateAccounts
         } else {
             loadedAccounts = [defaultAccount]
         }
         let savedAccount = UserDefaults.standard.string(forKey: Self.activeAccountKey).flatMap(UUID.init(uuidString:))
-        let chosenAccountID = savedAccount.flatMap { candidate in
+        let migratedSavedAccount = savedAccount.flatMap { candidate in
+            decodedDefaultID(from: UserDefaults.standard.data(forKey: Self.accountsKey)) == candidate
+                ? Self.defaultAccountID
+                : candidate
+        }
+        let chosenAccountID = migratedSavedAccount.flatMap { candidate in
             loadedAccounts.contains(where: { $0.id == candidate }) ? candidate : nil
-        } ?? loadedAccounts[0].id
+        } ?? Self.defaultAccountID
         self.previewMode = previewMode
         self.accounts = loadedAccounts
         self.activeAccountID = chosenAccountID
         self.client = CodexAppServerClient(codexHome: loadedAccounts.first(where: { $0.id == chosenAccountID })?.homeURL)
-        if UserDefaults.standard.data(forKey: Self.accountsKey) == nil {
-            UserDefaults.standard.set(try? JSONEncoder().encode(loadedAccounts), forKey: Self.accountsKey)
-        }
+        UserDefaults.standard.set(try? JSONEncoder().encode(loadedAccounts), forKey: Self.accountsKey)
+        UserDefaults.standard.set(chosenAccountID.uuidString, forKey: Self.activeAccountKey)
         let saved = UserDefaults.standard.integer(forKey: Self.thresholdKey)
         alertThreshold = saved == 0 ? 20 : saved
         displayMode = MenuBarDisplayMode(rawValue: UserDefaults.standard.string(forKey: Self.displayModeKey) ?? "") ?? .iconAndPercentage
@@ -217,12 +224,29 @@ final class UsageStore: ObservableObject {
             let previous = payload
             payload = newPayload
             errorMessage = newPayload.snapshot.windows.isEmpty ? "No Codex rate-limit windows were returned for this account." : nil
+            if errorMessage == nil { lastUsageDiagnostics = nil }
             await notifyIfNeeded(newPayload)
             detectBankedResetMilestone(previous: previous, current: newPayload)
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            lastUsageDiagnostics = await client.diagnosticSummary()
             await client.stop()
         }
+    }
+
+    func copyUsageDiagnostics() {
+        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development"
+        let text = [
+            "Codex Meter diagnostics",
+            "Version: \(appVersion)",
+            "Time: \(Date().formatted(date: .numeric, time: .standard))",
+            "Active profile: \(activeAccountName) (\(activeAccountID == Self.defaultAccountID ? "default CODEX_HOME" : "isolated CODEX_HOME"))",
+            "Last successful refresh: \(payload?.fetchedAt.formatted(date: .numeric, time: .standard) ?? "none")",
+            "Usage error: \(errorMessage ?? "none")",
+            lastUsageDiagnostics ?? "Protocol diagnostics: unavailable"
+        ].joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
@@ -358,7 +382,7 @@ final class UsageStore: ObservableObject {
         Task {
             if wasActive { await client.stop() }
             do {
-                loginProcesses.removeValue(forKey: profile.id)?.terminate()
+                loginTasks.removeValue(forKey: profile.id)?.cancel()
                 try AccountProfileStorage.removeLocalProfile(at: home)
                 accounts.removeAll { $0.id == profile.id }
                 persistAccounts()
@@ -382,51 +406,41 @@ final class UsageStore: ObservableObject {
     }
 
     private func startLogin(for profile: AccountProfile) {
-        guard let executable = CodexAppServerClient.locateExecutable(), let home = profile.homeURL else { return }
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = ["login"]
-        var environment = ProcessInfo.processInfo.environment
-        environment["CODEX_HOME"] = home.path
-        process.environment = environment
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        process.terminationHandler = { [weak self] finished in
-            Task { @MainActor in
-                self?.finishLogin(profileID: profile.id, succeeded: finished.terminationStatus == 0)
+        guard let home = profile.homeURL else { return }
+        errorMessage = nil
+        loginTasks[profile.id]?.cancel()
+        loginTasks[profile.id] = Task { [weak self] in
+            guard let self else { return }
+            let loginClient = CodexAppServerClient(codexHome: home)
+            do {
+                let login = try await loginClient.startChatGPTLogin()
+                guard NSWorkspace.shared.open(login.authorizationURL) else {
+                    throw CodexClientError.server("The OpenAI sign-in page could not be opened in your browser.")
+                }
+                try await loginClient.waitForLogin(id: login.id)
+                guard let account = try await loginClient.readAccount(refreshToken: true) else {
+                    throw CodexClientError.server("Codex did not report a signed-in account after login.")
+                }
+                await loginClient.stop()
+                self.loginTasks.removeValue(forKey: profile.id)
+                if let index = self.accounts.firstIndex(where: { $0.id == profile.id }) {
+                    self.accounts[index].email = account.email
+                    self.persistAccounts()
+                }
+                self.switchMeterAccount(to: profile.id)
+                self.celebration = Celebration(title: "Account ready", subtitle: "Secure sign-in completed", symbol: "person.crop.circle.badge.checkmark")
+                self.dismissCelebration()
+            } catch is CancellationError {
+                await loginClient.stop()
+            } catch {
+                await loginClient.stop()
+                self.loginTasks.removeValue(forKey: profile.id)
+                self.accounts.removeAll { $0.id == profile.id }
+                self.persistAccounts()
+                try? AccountProfileStorage.removeLocalProfile(at: home)
+                self.errorMessage = "OpenAI sign-in failed: \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)"
             }
         }
-        do {
-            try process.run()
-            loginProcesses[profile.id] = process
-        } catch {
-            errorMessage = "Codex login could not be started: \(error.localizedDescription)"
-        }
-    }
-
-    private func finishLogin(profileID: UUID, succeeded: Bool) {
-        loginProcesses.removeValue(forKey: profileID)
-        guard succeeded else {
-            accounts.removeAll { $0.id == profileID }
-            persistAccounts()
-            errorMessage = "The OpenAI sign-in was cancelled or did not complete. You can add the account again when ready."
-            return
-        }
-        Task { await finishSuccessfulLogin(profileID: profileID) }
-    }
-
-    private func finishSuccessfulLogin(profileID: UUID) async {
-        if let index = accounts.firstIndex(where: { $0.id == profileID }), let home = accounts[index].homeURL {
-            let identityClient = CodexAppServerClient(codexHome: home)
-            if let account = try? await identityClient.readAccount() {
-                accounts[index].email = account.email
-                persistAccounts()
-            }
-            await identityClient.stop()
-        }
-        switchMeterAccount(to: profileID)
-        celebration = Celebration(title: "Account ready", subtitle: "Secure sign-in completed", symbol: "person.crop.circle.badge.checkmark")
-        dismissCelebration()
     }
 
     private func persistAccounts() {
@@ -574,6 +588,12 @@ final class UsageStore: ObservableObject {
         UserDefaults.standard.set(max(0, cachedInputRate), forKey: Self.cachedInputRateKey)
         UserDefaults.standard.set(max(0, outputRate), forKey: Self.outputRateKey)
     }
+}
+
+private func decodedDefaultID(from data: Data?) -> UUID? {
+    guard let data,
+          let decoded = try? JSONDecoder().decode([AccountProfile].self, from: data) else { return nil }
+    return decoded.first(where: { $0.homePath == nil })?.id
 }
 
 enum ResetTimeFormatter {
